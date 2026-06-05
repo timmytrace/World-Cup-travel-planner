@@ -1,6 +1,8 @@
 import asyncio
 import os
 import queue
+import shutil
+import subprocess
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -20,6 +22,22 @@ from data.wc2026_data import MATCHES, VENUES
 from fan_companion import root_agent
 
 load_dotenv()
+
+# ── Ensure mongodb-mcp-server is available (auto-install on cloud) ─────────────
+def _ensure_mcp_server() -> None:
+    """Install mongodb-mcp-server via npm if not found (Streamlit Cloud startup)."""
+    if shutil.which("mongodb-mcp-server") or shutil.which("mongodb-mcp-server.cmd"):
+        return
+    try:
+        subprocess.run(
+            ["npm", "install", "-g", "mongodb-mcp-server"],
+            check=True, capture_output=True, timeout=120,
+        )
+    except Exception:
+        pass  # Agent will fall back gracefully if MCP is unavailable
+
+_ensure_mcp_server()
+
 
 _BOT_AVATAR = _PIL_Image.open("World-Cup-2026-umbrella-FTR-(1).jpg.webp")
 
