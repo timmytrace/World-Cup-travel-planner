@@ -122,6 +122,30 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 
 ---
 
+## Cloud Run and MongoDB Atlas
+
+Atlas only accepts connections from addresses in the project's IP access list.
+Cloud Run uses a dynamic outbound IP pool unless static egress is configured.
+
+For a short-lived demo, you can temporarily add `0.0.0.0/0` in Atlas under
+**Network Access**, record the demo, and remove the rule immediately afterward.
+Use a strong database password and a least-privilege database user. This is not
+recommended for production.
+
+For production, route Cloud Run outbound traffic through a VPC and Cloud NAT
+with a reserved static IP, then allow only that IP as a `/32` entry in Atlas.
+Store the full `mongodb+srv://...` URI in Secret Manager and expose it to the
+service as `MONGODB_URI`.
+
+The container installs system CA certificates and PyMongo uses the `certifi`
+root bundle. Do not disable certificate verification or add
+`tlsAllowInvalidCertificates=true`.
+
+After changing Atlas access or the MongoDB secret, deploy a new Cloud Run
+revision and confirm that the service logs contain a successful MongoDB ping.
+
+---
+
 ## 🧰 Tools & Agent Capabilities
 
 | Tool | What it does |

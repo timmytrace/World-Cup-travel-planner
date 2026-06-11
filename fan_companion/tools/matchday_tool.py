@@ -14,8 +14,8 @@ import os
 import re
 import httpx
 from datetime import datetime, timedelta
-from pymongo import MongoClient
 from data.wc2026_data import CITY_WEATHER, VENUES
+from fan_companion.mongo import create_mongo_client
 
 
 def _query_local_venue(venue_hint: str) -> dict | None:
@@ -39,24 +39,23 @@ def _query_mongo(venue_hint: str) -> tuple[dict | None, list]:
     if not uri:
         return None, []
     try:
-        client = MongoClient(uri, serverSelectionTimeoutMS=8_000)
-        db = client["worldcup2026"]
-        hint = venue_hint.strip().lower()
-        venue_doc = db.venues.find_one(
-            {
-                "$or": [
-                    {"venue_id": hint},
-                    {"aliases": hint},
-                    {"name": {"$regex": re.escape(hint), "$options": "i"}},
-                    {"city": {"$regex": re.escape(hint), "$options": "i"}},
-                    {"aliases": {"$regex": re.escape(hint), "$options": "i"}},
-                ]
-            },
-            {"_id": 0},
-        )
-        cfg = db.config.find_one({"key": "safety_tips"}, {"_id": 0})
-        safety_tips = (cfg or {}).get("tips", [])
-        client.close()
+        with create_mongo_client(uri, timeout_ms=8_000) as client:
+            db = client["worldcup2026"]
+            hint = venue_hint.strip().lower()
+            venue_doc = db.venues.find_one(
+                {
+                    "$or": [
+                        {"venue_id": hint},
+                        {"aliases": hint},
+                        {"name": {"$regex": re.escape(hint), "$options": "i"}},
+                        {"city": {"$regex": re.escape(hint), "$options": "i"}},
+                        {"aliases": {"$regex": re.escape(hint), "$options": "i"}},
+                    ]
+                },
+                {"_id": 0},
+            )
+            cfg = db.config.find_one({"key": "safety_tips"}, {"_id": 0})
+            safety_tips = (cfg or {}).get("tips", [])
         return venue_doc, safety_tips
     except Exception:
         return None, []

@@ -16,17 +16,29 @@ from fan_companion.tools.venue_resolution_tool import resolve_fixture_venue
 load_dotenv()
 
 _MCP_CMD = "mongodb-mcp-server.cmd" if os.name == "nt" else "mongodb-mcp-server"
+_CA_FILE = os.getenv("SSL_CERT_FILE", "")
+if os.name != "nt" and not _CA_FILE:
+    _CA_FILE = "/etc/ssl/certs/ca-certificates.crt"
+
+_MCP_ENV = {
+    **os.environ,
+    "MDB_MCP_CONNECTION_STRING": os.getenv("MONGODB_URI", ""),
+    "MDB_MCP_DEFAULT_DB": "worldcup2026",
+}
+if _CA_FILE:
+    _MCP_ENV.update(
+        {
+            "SSL_CERT_FILE": _CA_FILE,
+            "NODE_EXTRA_CA_CERTS": _CA_FILE,
+        }
+    )
 
 _mongo_mcp = MCPToolset(
     connection_params=StdioConnectionParams(
         server_params=StdioServerParameters(
             command=_MCP_CMD,
             args=[],
-            env={
-                **os.environ,
-                "MDB_MCP_CONNECTION_STRING": os.getenv("MONGODB_URI", ""),
-                "MDB_MCP_DEFAULT_DB": "worldcup2026",
-            },
+            env=_MCP_ENV,
         ),
         timeout=60.0,
     ),

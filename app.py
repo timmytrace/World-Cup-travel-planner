@@ -1,9 +1,11 @@
 import asyncio
+import logging
 import os
 import queue
 import shutil
 import subprocess
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from html import escape
@@ -15,11 +17,11 @@ from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
 from PIL import Image as _PIL_Image
 import pydeck as pdk
-from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
 from data.wc2026_data import MATCHES, VENUES
 from fan_companion import root_agent
+from fan_companion.mongo import create_mongo_client, mongo_fallback_message
 
 load_dotenv()
 
@@ -768,20 +770,25 @@ def _trip_checklist(profile: dict) -> list[str]:
 
 
 @st.cache_resource(show_spinner=False)
-def _mongo_client(uri: str) -> MongoClient:
-    return MongoClient(uri, serverSelectionTimeoutMS=5_000)
+def _mongo_client(uri: str):
+    return create_mongo_client(uri, timeout_ms=5_000)
 
 
 def _mongo_db():
     uri = os.getenv("MONGODB_URI", "")
     if not uri:
         return None, "MONGODB_URI is not configured; using this browser session only."
+    if st.session_state.get("mongo_retry_after", 0.0) > time.monotonic():
+        return None, mongo_fallback_message()
     try:
         client = _mongo_client(uri)
         client.admin.command("ping")
+        st.session_state.pop("mongo_retry_after", None)
         return client["worldcup2026"], ""
     except PyMongoError as exc:
-        return None, f"MongoDB is unavailable right now: {exc}"
+        st.session_state.mongo_retry_after = time.monotonic() + 30
+        logging.warning("MongoDB ping failed; local fallback enabled: %s", exc)
+        return None, mongo_fallback_message()
 
 
 def _save_itinerary(title: str, content: str, profile: dict, mission: dict | None) -> tuple[bool, str]:
@@ -805,7 +812,9 @@ def _save_itinerary(title: str, content: str, profile: dict, mission: dict | Non
         return True, "Saved to MongoDB Atlas itineraries."
     except PyMongoError as exc:
         st.session_state.saved_itineraries_local.insert(0, doc)
-        return True, f"Saved locally because MongoDB write failed: {exc}"
+        st.session_state.mongo_retry_after = time.monotonic() + 30
+        logging.warning("MongoDB itinerary write failed; saved locally: %s", exc)
+        return True, mongo_fallback_message()
 
 
 def _load_itineraries() -> tuple[list[dict], str]:
@@ -824,7 +833,9 @@ def _load_itineraries() -> tuple[list[dict], str]:
         )
         return docs or local, ""
     except PyMongoError as exc:
-        return local, f"Showing local saved trips because MongoDB read failed: {exc}"
+        st.session_state.mongo_retry_after = time.monotonic() + 30
+        logging.warning("MongoDB itinerary read failed; showing local data: %s", exc)
+        return local, mongo_fallback_message()
 
 
 def _sync_verified_fixtures() -> str:
@@ -846,7 +857,9 @@ def _sync_verified_fixtures() -> str:
             )
         return f"Synced {len(verified_matches)} verified fixtures to MongoDB Atlas."
     except PyMongoError as exc:
-        return f"Could not sync verified fixtures: {exc}"
+        st.session_state.mongo_retry_after = time.monotonic() + 30
+        logging.warning("MongoDB fixture sync failed: %s", exc)
+        return mongo_fallback_message()
 
 
 _QUICK_PROMPTS = [
